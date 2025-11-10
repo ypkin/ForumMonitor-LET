@@ -20,7 +20,7 @@
 #  12. update     从 GitHub 更新此管理脚本 (自动应用更新)。
 #   q. quit       退出菜单 (仅在交互模式下)。
 #
-# --- (c) 2025 - 自动生成 (V19 - 修复 Pushplus \n Bug) ---
+# --- (c) 2025 - 自动生成 (V20 - 修复 Pushplus 模板) ---
 
 set -e
 set -u
@@ -604,7 +604,7 @@ urllib3<2.0
 lxml
 EOF
 
-    # F. 创建 send.py (Pushplus 版本) - (*** V19: 修复 \n Bug ***)
+    # F. 创建 send.py (Pushplus 版本) - (*** V20: 修复 template Bug ***)
     echo "--- 正在创建/覆盖 Pushplus 通知脚本: $APP_DIR/send.py ---"
     cat <<'EOF' > "$APP_DIR/send.py"
 import json
@@ -681,7 +681,7 @@ class NotificationSender:
         try:
             lines = message.split('\n', 1)
             title = lines[0]
-            # (*** V19 修复 ***) 添加 .strip() 来移除开头的 \n
+            # (V19) 添加 .strip() 来移除开头的 \n
             content = (lines[1] if len(lines) > 1 else title).strip()
         except Exception:
             title = "论坛新通知"
@@ -693,7 +693,8 @@ class NotificationSender:
             "token": self.token,
             "title": title,
             "content": content,
-            "template": "markdown" # 【修复4】改用 markdown
+            # (*** V20 修复 ***) 更改为 "txt" 来匹配 curl 的默认（工作）行为
+            "template": "txt"
         }
         
         try:
