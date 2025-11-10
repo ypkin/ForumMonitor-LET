@@ -20,7 +20,7 @@
 #  12. update     从 GitHub 更新此管理脚本 (自动应用更新)。
 #   q. quit       退出菜单 (仅在交互模式下)。
 #
-# --- (c) 2025 - 自动生成 (V18 - 修复 Pushplus User-Agent) ---
+# --- (c) 2025 - 自动生成 (V18 - 修复 Bookworm 依赖) ---
 
 set -e
 set -u
@@ -31,8 +31,9 @@ VENV_DIR="$APP_DIR/venv"
 SERVICE_NAME="forum-monitor"
 PYTHON_SCRIPT_NAME="core.py"
 SYSTEMD_SERVICE_FILE="/etc/systemd/system/$SERVICE_NAME.service"
-MONGO_APT_SOURCE="/etc/apt/sources.list.d/mongodb-org-6.0.list"
-MONGO_GPG_KEY="/usr/share/keyrings/mongodb-server-6.0.gpg"
+# (V18) 更新为 7.0 路径
+MONGO_APT_SOURCE="/etc/apt/sources.list.d/mongodb-org-7.0.list"
+MONGO_GPG_KEY="/usr/share/keyrings/mongodb-server-7.0.gpg"
 CONFIG_FILE="$APP_DIR/data/config.json"
 SHORTCUT_PATH="/usr/local/bin/fm"
 UPDATE_URL="https://raw.githubusercontent.com/ypkin/ForumMonitor-LET/refs/heads/main/ForumMonitor.sh"
@@ -269,11 +270,15 @@ run_uninstall() {
     rm -rf "$APP_DIR"
     
     echo "--- 正在卸载 (purge) mongodb-org... ---"
-    apt-get purge -y mongodb-org
+    # (V18) 尝试移除所有已知的 mongo 版本
+    apt-get purge -y mongodb-org mongodb-org-v6
     
     echo "--- 正在移除 MongoDB apt 源文件... ---"
-    rm -f "$MONGO_APT_SOURCE"
-    rm -f "$MONGO_GPG_KEY"
+    # (V18) 移除新旧两个版本
+    rm -f /etc/apt/sources.list.d/mongodb-org-6.0.list
+    rm -f /usr/share/keyrings/mongodb-server-6.0.gpg
+    rm -f $MONGO_APT_SOURCE
+    rm -f $MONGO_GPG_KEY
     
     echo "--- 正在移除快捷方式 $SHORTCUT_PATH... ---"
     rm -f "$SHORTCUT_PATH"
@@ -744,11 +749,36 @@ run_install() {
     apt-get update
     apt-get install -y python3 python3-pip python3-venv
 
+    # (*** V18 修复 ***)
     # B. 安装系统依赖 (MongoDB)
     echo "--- 正在安装 MongoDB (脚本的数据库依赖)... ---"
     apt-get install -y curl gnupg
-    curl -fsSL https://www.mongodb.org/static/pgp/server-6.0.asc | gpg --dearmor -o $MONGO_GPG_KEY
-    echo "deb [ arch=amd64,arm64 signed-by=$MONGO_GPG_KEY ] https://repo.mongodb.org/apt/debian bullseye/mongodb-org/6.0 main" | tee $MONGO_APT_SOURCE
+    
+    # 自动检测 Debian 版本
+    local CODENAME
+    CODENAME=$(lsb_release -cs)
+    local MONGO_GPG_KEY_PATH=""
+    local MONGO_APT_SOURCE_STR=""
+    
+    if [ "$CODENAME" == "bookworm" ]; then
+        echo "--- 检测到 Debian 12 (Bookworm)。正在添加 MongoDB 7.0 仓库... ---"
+        MONGO_GPG_KEY_PATH="/usr/share/keyrings/mongodb-server-7.0.gpg"
+        MONGO_APT_SOURCE_STR="deb [ arch=amd64,arm64 signed-by=$MONGO_GPG_KEY_PATH ] https://repo.mongodb.org/apt/debian bookworm/mongodb-org/7.0 main"
+        curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | gpg --dearmor -o $MONGO_GPG_KEY_PATH
+        
+    elif [ "$CODENAME" == "bullseye" ]; then
+        echo "--- 检测到 Debian 11 (Bullseye)。正在添加 MongoDB 6.0 仓库... ---"
+        MONGO_GPG_KEY_PATH="/usr/share/keyrings/mongodb-server-6.0.gpg"
+        MONGO_APT_SOURCE_STR="deb [ arch=amd64,arm64 signed-by=$MONGO_GPG_KEY_PATH ] https://repo.mongodb.org/apt/debian bullseye/mongodb-org/6.0 main"
+        curl -fsSL https://www.mongodb.org/static/pgp/server-6.0.asc | gpg --dearmor -o $MONGO_GPG_KEY_PATH
+
+    else
+        echo -e "${RED}错误: 不支持的 Debian 版本 ($CODENAME)。此脚本仅支持 Debian 11 (Bullseye) 和 Debian 12 (Bookworm)。${NC}"
+        exit 1
+    fi
+    
+    echo $MONGO_APT_SOURCE_STR | tee /etc/apt/sources.list.d/mongodb-org.list
+    
     apt-get update
     apt-get install -y mongodb-org
     echo "--- 正在启动并启用 MongoDB (mongod)... ---"
