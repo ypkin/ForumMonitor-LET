@@ -17,11 +17,10 @@
 #   9. logs       查看脚本实时日志 (按 Ctrl+C 退出)。
 #  10. test-ai    测试 Cloudflare AI 连通性。
 #  11. test-push  发送一条 Pushplus 测试消息。
-#  12. update     从 GitHub 更新此管理脚本。
-#   0. help       显示此帮助信息。
+#  12. update     从 GitHub 更新脚本 (自动应用更新)。
 #   q. quit       退出菜单 (仅在交互模式下)。
 #
-# --- (c) 2025 - 自动生成 (V13 - 彩色日志) ---
+# --- (c) 2025 - 自动生成 (V16 - 移除选项 0) ---
 
 set -e
 set -u
@@ -241,10 +240,10 @@ run_update() {
     chmod +x "$TEMP_PATH"
     mv "$TEMP_PATH" "$SCRIPT_PATH"
     
-    echo -e "${GREEN}更新完成！正在重新启动管理菜单...${NC}"
+    echo -e "${GREEN}更新完成！正在执行更新后操作 (应用 Python 更改)...${NC}"
     sleep 2
     
-    exec "$SCRIPT_PATH"
+    exec "$SCRIPT_PATH" "--post-update"
 }
 
 
@@ -286,32 +285,13 @@ run_uninstall() {
     echo "=== 卸载完成。 ==="
 }
 
-run_install() {
-    echo "=== 正在开始部署 ForumMonitor 服务 (完整版) ==="
-    echo "将安装到: $APP_DIR"
+# (新) 此函数仅更新 Python 代码和依赖项，而不触及配置
+run_apply_app_update() {
+    echo "--- (更新) 正在应用内部 Python 脚本更新... ---"
+    check_service_exists # 确保我们正在更新一个已安装的服务
 
-    # A. 安装系统依赖 (Python)
-    echo "--- 正在更新软件包列表并安装 Python 依赖... ---"
-    apt-get update
-    apt-get install -y python3 python3-pip python3-venv
-
-    # B. 安装系统依赖 (MongoDB)
-    echo "--- 正在安装 MongoDB (脚本的数据库依赖)... ---"
-    apt-get install -y curl gnupg
-    curl -fsSL https://www.mongodb.org/static/pgp/server-6.0.asc | gpg --dearmor -o $MONGO_GPG_KEY
-    echo "deb [ arch=amd64,arm64 signed-by=$MONGO_GPG_KEY ] https://repo.mongodb.org/apt/debian bullseye/mongodb-org/6.0 main" | tee $MONGO_APT_SOURCE
-    apt-get update
-    apt-get install -y mongodb-org
-    echo "--- 正在启动并启用 MongoDB (mongod)... ---"
-    systemctl start mongod
-    systemctl enable mongod
-
-    # C. 创建目录结构
-    echo "--- 正在创建应用程序目录: $APP_DIR/data ---"
-    mkdir -p "$APP_DIR/data"
-
-    # D. 创建 Python 脚本 (core.py)
-    echo "--- 正在创建 Python 主程序: $APP_DIR/$PYTHON_SCRIPT_NAME ---"
+    # D. 覆盖 Python 脚本 (core.py)
+    echo "--- 正在更新 core.py... ---"
     cat <<'EOF' > "$APP_DIR/$PYTHON_SCRIPT_NAME"
 import json
 import time
@@ -614,8 +594,8 @@ if __name__ == "__main__":
     monitor.start_monitoring()
 EOF
 
-    # E. 创建 Python 依赖文件 (requirements.txt)
-    echo "--- 正在创建 Python 依赖文件: $APP_DIR/requirements.txt ---"
+    # E. 覆盖 Python 依赖文件 (requirements.txt)
+    echo "--- 正在更新 requirements.txt... ---"
     cat <<EOF > "$APP_DIR/requirements.txt"
 requests
 beautifulsoup4
@@ -625,8 +605,8 @@ urllib3<2.0
 lxml
 EOF
 
-    # F. 创建 send.py (Pushplus 版本) - (*** V13: 彩色日志 ***)
-    echo "--- 正在创建 Pushplus 通知脚本: $APP_DIR/send.py ---"
+    # F. 覆盖 send.py (Pushplus 版本)
+    echo "--- 正在更新 send.py... ---"
     cat <<'EOF' > "$APP_DIR/send.py"
 import json
 import requests
@@ -733,22 +713,67 @@ class NotificationSender:
 
 EOF
 
-    # G. 交互式输入 API 密钥
-    echo ""
-    echo "--- 正在配置 API 密钥 (将保存到 data/config.json) ---"
-    read -p "请输入 Pushplus Token: " PUSHPLUS_TOKEN
-    read -p "请输入 Cloudflare API Token: " CF_TOKEN
-    read -p "请输入 Cloudflare Account ID (32位字符串, 不是邮箱!): " CF_ACCOUNT_ID
-    if [ -z "$PUSHPLUS_TOKEN" ] || [ -z "$CF_TOKEN" ] || [ -z "$CF_ACCOUNT_ID" ]; then
-      echo -e "${RED}错误：所有字段都必须填写。部署中止。${NC}"
-      exit 1
-    fi
-    echo "--- 密钥输入完毕 ---"
-    echo ""
+    # G. (新) 检查 Python 依赖
+    echo "--- 正在检查/更新 Python 依赖... ---"
+    "$VENV_DIR/bin/pip" install -r "$APP_DIR/requirements.txt"
 
-    # H. 创建 data/config.json (*** V12: 修复 AI 模型 ***)
-    echo "--- 正在创建 *实际* 配置文件: $CONFIG_FILE ---"
-    cat << EOF > "$CONFIG_FILE"
+    # H. (新) 重启服务
+    echo "--- 正在重启服务以应用更新... ---"
+    run_restart
+    
+    echo -e "${GREEN}--- 内部应用更新完成! ---${NC}"
+}
+
+
+run_install() {
+    echo "=== 正在开始部署 ForumMonitor 服务 (完整版) ==="
+    echo "将安装到: $APP_DIR"
+
+    # A. 安装系统依赖 (Python)
+    echo "--- 正在更新软件包列表并安装 Python 依赖... ---"
+    apt-get update
+    apt-get install -y python3 python3-pip python3-venv
+
+    # B. 安装系统依赖 (MongoDB)
+    echo "--- 正在安装 MongoDB (脚本的数据库依赖)... ---"
+    apt-get install -y curl gnupg
+    curl -fsSL https://www.mongodb.org/static/pgp/server-6.0.asc | gpg --dearmor -o $MONGO_GPG_KEY
+    echo "deb [ arch=amd64,arm64 signed-by=$MONGO_GPG_KEY ] https://repo.mongodb.org/apt/debian bullseye/mongodb-org/6.0 main" | tee $MONGO_APT_SOURCE
+    apt-get update
+    apt-get install -y mongodb-org
+    echo "--- 正在启动并启用 MongoDB (mongod)... ---"
+    systemctl start mongod
+    systemctl enable mongod
+
+    # C. 创建目录结构
+    echo "--- 正在创建应用程序目录: $APP_DIR/data ---"
+    mkdir -p "$APP_DIR/data"
+
+    # D, E, F (应用 Python 脚本, 依赖, 和 send.py)
+    # 调用此函数会覆盖文件，但不会安装依赖或重启服务
+    run_apply_app_update
+
+    # (*** V14 修复 ***)
+    # G & H. 检查配置，如果不存在则创建
+    if [ ! -f "$CONFIG_FILE" ]; then
+        echo -e "${YELLOW}未找到现有的 config.json。将进行首次设置...${NC}"
+        
+        # G. 交互式输入 API 密钥
+        echo ""
+        echo "--- 正在配置 API 密钥 (将保存到 data/config.json) ---"
+        read -p "请输入 Pushplus Token: " PUSHPLUS_TOKEN
+        read -p "请输入 Cloudflare API Token: " CF_TOKEN
+        read -p "请输入 Cloudflare Account ID (32位字符串, 不是邮箱!): " CF_ACCOUNT_ID
+        if [ -z "$PUSHPLUS_TOKEN" ] || [ -z "$CF_TOKEN" ] || [ -z "$CF_ACCOUNT_ID" ]; then
+          echo -e "${RED}错误：所有字段都必须填写。部署中止。${NC}"
+          exit 1
+        fi
+        echo "--- 密钥输入完毕 ---"
+        echo ""
+
+        # H. 创建 data/config.json (V12: 修复 AI 模型)
+        echo "--- 正在创建 *实际* 配置文件: $CONFIG_FILE ---"
+        cat << EOF > "$CONFIG_FILE"
 {
   "config": {
     "pushplus_token": "$PUSHPLUS_TOKEN",
@@ -761,8 +786,11 @@ EOF
   }
 }
 EOF
+    else
+        echo -e "${GREEN}--- 发现现有的 config.json。跳过 API 密钥设置。---${NC}"
+    fi
 
-    # I. 创建 example.json (作为备份) (*** V12: 修复 AI 模型 ***)
+    # I. 创建 example.json (作为备份)
     echo "--- 正在创建配置文件模板 (用于参考): $APP_DIR/example.json ---"
     cat <<'EOF' > "$APP_DIR/example.json"
 {
@@ -822,7 +850,7 @@ EOF
     # N. 完成
     echo ""
     echo "================================================="
-    echo "=== 部署完成! (已包含所有修复) ==="
+    echo "=== 部署/更新完成! (已包含所有修复) ==="
     echo ""
     echo "您的应用已安装在: $APP_DIR"
     echo "MongoDB 和 Python 服务都已启动并设置为开机自启。"
@@ -854,8 +882,7 @@ show_help() {
     echo -e "${GREEN}  9. logs       查看脚本实时日志 (按 Ctrl+C 退出)。${NC}"
     echo -e "${GREEN} 10. test-ai    测试 Cloudflare AI 连通性。${NC}"
     echo -e "${GREEN} 11. test-push  发送一条 Pushplus 测试消息。${NC}"
-    echo -e "${GREEN} 12. update     从 GitHub 更新此管理脚本。${NC}"
-    echo -e "${GREEN}  0. help       显示此帮助信息。${NC}"
+    echo -e "${GREEN} 12. update     从 GitHub 更新此管理脚本 (自动应用更新)。${NC}"
     echo -e "${GREEN}  q. quit       退出此菜单。${NC}"
     echo -e "${GREEN}---------------------------------------------------------${NC}"
 }
@@ -869,8 +896,18 @@ main() {
       exit 1
     fi
 
-    # 如果有参数 (e.g., ./script.sh 1), 则执行该命令并退出
-    if [ -n "${1:-}" ]; then
+    # (新) 检查是否是更新后的自动执行
+    if [ "${1:-}" == "--post-update" ]; then
+        echo "--- 正在执行更新后任务 (应用 Python 脚本)... ---"
+        run_apply_app_update
+        echo ""
+        echo -e "${GREEN}所有更新均已应用！${NC}"
+        echo "按任意键进入主菜单..."
+        read -n 1 -s -r
+        # 跌落到交互式菜单
+    
+    # 检查是否有参数 (e.g., ./script.sh 1)
+    elif [ -n "${1:-}" ]; then
         local COMMAND="$1"
         case "$COMMAND" in
             install|1) run_install ;;
@@ -888,7 +925,7 @@ main() {
             test-ai|ai|10) run_test_ai ;;
             test-push|test|11) run_test_push ;;
             update|12) run_update ;;
-            help|0) show_help ;;
+            help|0) show_help ;; # 保留 help|0 以防万一
             *)
                 echo -e "${RED}错误: 未知命令 '$COMMAND'${NC}"
                 show_help
