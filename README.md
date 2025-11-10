@@ -8,5 +8,5 @@
 
 
 ```
-wget -O https://raw.githubusercontent.com/ypkin/ForumMonitor-LET/refs/heads/main/ForumMonitor.sh && chmod +x ForumMonitor.sh && ./ForumMonitor.sh
+wget -O ForumMonitor.sh https://raw.githubusercontent.com/ypkin/ForumMonitor-LET/refs/heads/main/ForumMonitor.sh && chmod +x ForumMonitor.sh && ./ForumMonitor.sh
 ```
