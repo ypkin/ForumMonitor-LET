@@ -20,7 +20,7 @@
 #  12. update     从 GitHub 更新此管理脚本 (自动应用更新)。
 #   q. quit       退出菜单 (仅在交互模式下)。
 #
-# --- (c) 2025 - 自动生成 (V20 - 修复 Pushplus 模板) ---
+# --- (c) 2025 - 自动生成 (V21 - 模拟 cURL 修复 Pushplus) ---
 
 set -e
 set -u
@@ -164,7 +164,7 @@ run_test_push() {
         return 1
     fi
 
-    local PY_COMMAND="import sys; sys.path.append('$APP_DIR'); from send import NotificationSender; print('Initializing NotificationSender...'); sender = NotificationSender('$CONFIG_FILE'); print('Sending test message...'); sender.send_message('ForumMonitor: Test Message\n\nThis is a test of the Pushplus integration from your management script.'); print('Test message sent. Please check your device.')"
+    local PY_COMMAND="import sys; sys.path.append('$APP_DIR'); from send import NotificationSender; print('Initializing NotificationSender...'); sender = NotificationSender('$CONFIG_FILE'); print('Sending test message...'); sender.send_message('ForumMonitor: Test Message\nThis is a test of the Pushplus integration from your management script.'); print('Test message sent. Please check your device.')"
     
     "$VENV_DIR/bin/python" -c "$PY_COMMAND"
 }
@@ -604,7 +604,7 @@ urllib3<2.0
 lxml
 EOF
 
-    # F. 创建 send.py (Pushplus 版本) - (*** V20: 修复 template Bug ***)
+    # F. 创建 send.py (Pushplus 版本) - (*** V21: 修复 template 和 User-Agent ***)
     echo "--- 正在创建/覆盖 Pushplus 通知脚本: $APP_DIR/send.py ---"
     cat <<'EOF' > "$APP_DIR/send.py"
 import json
@@ -636,8 +636,8 @@ class NotificationSender:
         # (新) 在此处创建带重试策略的 session
         self.session = requests.Session()
         
-        # (V18) 设置一个浏览器 User-Agent 来防止被屏蔽
-        self.session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'})
+        # (*** V21 修复 ***) 设置一个 curl User-Agent 来精确模拟成功的测试
+        self.session.headers.update({'User-Agent': 'curl/7.74.0'})
         
         retry_strategy = Retry(
             total=3,  # 总共重试3次
@@ -682,7 +682,7 @@ class NotificationSender:
             lines = message.split('\n', 1)
             title = lines[0]
             # (V19) 添加 .strip() 来移除开头的 \n
-            content = (lines[1] if len(lines) > 1 else title).strip()
+            content = (lines[1] if len(lines) > 1 else "").strip()
         except Exception:
             title = "论坛新通知"
             content = message
@@ -692,9 +692,9 @@ class NotificationSender:
         payload = {
             "token": self.token,
             "title": title,
-            "content": content,
-            # (*** V20 修复 ***) 更改为 "txt" 来匹配 curl 的默认（工作）行为
-            "template": "txt"
+            "content": content
+            # (*** V21 修复 ***) 移除 template 键，使用 Pushplus 默认值 (html)，
+            # 这与成功的 curl 测试相匹配。
         }
         
         try:
@@ -751,7 +751,7 @@ run_install() {
     # (*** V18 修复 ***)
     # B. 安装系统依赖 (MongoDB)
     echo "--- 正在安装 MongoDB (脚本的数据库依赖)... ---"
-    apt-get install -y curl gnupg
+    apt-get install -y curl gnupg lsb-release
     
     # 自动检测 Debian 版本
     local CODENAME
