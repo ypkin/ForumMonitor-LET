@@ -17,10 +17,10 @@
 #   9. logs       查看脚本实时日志 (按 Ctrl+C 退出)。
 #  10. test-ai    测试 Cloudflare AI 连通性。
 #  11. test-push  发送一条 Pushplus 测试消息。
-#  12. update     从 GitHub 更新脚本 (自动应用更新)。
+#  12. update     从 GitHub 更新此管理脚本 (自动应用更新)。
 #   q. quit       退出菜单 (仅在交互模式下)。
 #
-# --- (c) 2025 - 自动生成 (V16 - 移除选项 0) ---
+# --- (c) 2025 - 自动生成 (V16 - 修复安装逻辑) ---
 
 set -e
 set -u
@@ -285,13 +285,11 @@ run_uninstall() {
     echo "=== 卸载完成。 ==="
 }
 
-# (新) 此函数仅更新 Python 代码和依赖项，而不触及配置
-run_apply_app_update() {
-    echo "--- (更新) 正在应用内部 Python 脚本更新... ---"
-    check_service_exists # 确保我们正在更新一个已安装的服务
-
-    # D. 覆盖 Python 脚本 (core.py)
-    echo "--- 正在更新 core.py... ---"
+# (*** V16 修复 ***)
+# 此函数仅写入 Python 文件和依赖项。
+_write_python_files_and_deps() {
+    # D. 创建 Python 脚本 (core.py)
+    echo "--- 正在创建/覆盖 Python 主程序: $APP_DIR/$PYTHON_SCRIPT_NAME ---"
     cat <<'EOF' > "$APP_DIR/$PYTHON_SCRIPT_NAME"
 import json
 import time
@@ -594,8 +592,8 @@ if __name__ == "__main__":
     monitor.start_monitoring()
 EOF
 
-    # E. 覆盖 Python 依赖文件 (requirements.txt)
-    echo "--- 正在更新 requirements.txt... ---"
+    # E. 创建 Python 依赖文件 (requirements.txt)
+    echo "--- 正在创建/覆盖 Python 依赖文件: $APP_DIR/requirements.txt ---"
     cat <<EOF > "$APP_DIR/requirements.txt"
 requests
 beautifulsoup4
@@ -605,8 +603,8 @@ urllib3<2.0
 lxml
 EOF
 
-    # F. 覆盖 send.py (Pushplus 版本)
-    echo "--- 正在更新 send.py... ---"
+    # F. 创建 send.py (Pushplus 版本)
+    echo "--- 正在创建/覆盖 Pushplus 通知脚本: $APP_DIR/send.py ---"
     cat <<'EOF' > "$APP_DIR/send.py"
 import json
 import requests
@@ -716,8 +714,17 @@ EOF
     # G. (新) 检查 Python 依赖
     echo "--- 正在检查/更新 Python 依赖... ---"
     "$VENV_DIR/bin/pip" install -r "$APP_DIR/requirements.txt"
+}
 
-    # H. (新) 重启服务
+# (新) 此函数用于 `fm 12 (update)` 之后的自动操作
+run_apply_app_update() {
+    echo "--- (更新) 正在应用内部 Python 脚本更新... ---"
+    check_service_exists # 确保我们正在更新一个已安装的服务
+
+    # 写入 Python 文件
+    _write_python_files_and_deps
+    
+    # 重启服务
     echo "--- 正在重启服务以应用更新... ---"
     run_restart
     
@@ -750,8 +757,18 @@ run_install() {
     mkdir -p "$APP_DIR/data"
 
     # D, E, F (应用 Python 脚本, 依赖, 和 send.py)
-    # 调用此函数会覆盖文件，但不会安装依赖或重启服务
-    run_apply_app_update
+    _write_python_files_and_deps
+    
+    # J. 创建虚拟环境 (如果不存在)
+    if [ ! -d "$VENV_DIR" ]; then
+        echo "--- 正在创建 Python 虚拟环境: $VENV_DIR ---"
+        python3 -m venv "$VENV_DIR"
+    fi
+    
+    # 始终安装/更新依赖
+    echo "--- 正在安装/更新 Python 依赖库... ---"
+    "$VENV_DIR/bin/pip" install -r "$APP_DIR/requirements.txt"
+
 
     # (*** V14 修复 ***)
     # G & H. 检查配置，如果不存在则创建
@@ -805,12 +822,6 @@ EOF
   }
 }
 EOF
-
-    # J. 创建虚拟环境并安装依赖
-    echo "--- 正在创建 Python 虚拟环境: $VENV_DIR ---"
-    python3 -m venv "$VENV_DIR"
-    echo "--- 正在安装 Python 依赖库 (已修复依赖)... ---"
-    "$VENV_DIR/bin/pip" install -r "$APP_DIR/requirements.txt"
 
     # K. 创建 systemd 服务文件
     echo "--- 正在创建 systemd 服务: $SYSTEMD_SERVICE_FILE ---"
@@ -925,7 +936,6 @@ main() {
             test-ai|ai|10) run_test_ai ;;
             test-push|test|11) run_test_push ;;
             update|12) run_update ;;
-            help|0) show_help ;; # 保留 help|0 以防万一
             *)
                 echo -e "${RED}错误: 未知命令 '$COMMAND'${NC}"
                 show_help
@@ -1001,9 +1011,6 @@ main() {
                 ;;
             update|12)
                 run_update # 此函数会使用 exec，因此不会返回
-                ;;
-            help|0)
-                # 循环将自动重新显示帮助
                 ;;
             q|Q|quit|exit)
                 echo "正在退出..."
